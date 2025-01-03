@@ -23,7 +23,7 @@ install_if_missing() {
         echo "$package is not installed. Installing..."
         apt install -y "$package"
     else
-        echo "$package is already installed. Skipping..."
+        echo "$package is already installed."
     fi
 }
 
@@ -31,42 +31,37 @@ install_if_missing() {
 run_lynis_audit() {
     echo "Running Lynis system audit..."
     install_if_missing "lynis"
-    
-    # Run the Lynis audit and save output
-    lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat > /tmp/lynis-output.txt
-    echo "Lynis audit completed. Report saved to /var/log/lynis.log and /var/log/lynis-report.dat"
+
+    lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat || {
+        echo "Lynis audit failed. Check /var/log/lynis.log for details."
+        return 1
+    }
+    echo "Lynis audit completed."
 }
 
-# Function to query and apply latest Fail2Ban configuration
+# Function to configure Fail2Ban
 update_fail2ban() {
-    echo "Configuring Fail2Ban with dynamic updates..."
+    echo "Updating Fail2Ban..."
     install_if_missing "fail2ban"
 
     local config_url="https://raw.githubusercontent.com/fail2ban/fail2ban/master/config/jail.conf"
-    local dest="/etc/fail2ban/jail.local"
-
-    if [[ ! -f "$dest" ]]; then
-        echo "Downloading the latest Fail2Ban configuration..."
-        download_and_validate "$config_url" "$dest"
+    if curl -f -s "$config_url" -o /etc/fail2ban/jail.local; then
+        echo "Downloaded latest Fail2Ban configuration."
     else
-        echo "Fail2Ban configuration already exists. Validating syntax..."
-        if ! fail2ban-client -t; then
-            echo "Fail2Ban configuration is invalid. Downloading a fresh configuration..."
-            mv "$dest" "${dest}.bak"
-            download_and_validate "$config_url" "$dest"
-        fi
+        echo "Failed to download Fail2Ban configuration. Using default."
+        cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
     fi
 
-    sudo systemctl enable fail2ban
-    sudo systemctl restart fail2ban
+    systemctl enable fail2ban
+    systemctl restart fail2ban
 }
 
-# Function to query and apply latest RKHunter updates
+# Function to update RKHunter
 update_rkhunter() {
     echo "Updating RKHunter..."
     install_if_missing "rkhunter"
 
-    # Query latest version and files dynamically
+    # Query for the latest RKHunter version dynamically
     local base_url="https://sourceforge.net/projects/rkhunter/files/rkhunter"
     local latest_version
     latest_version=$(curl -s "$base_url" | grep -oP 'rkhunter/\K[\d.]+(?=/)' | sort -V | tail -n 1)
@@ -78,37 +73,36 @@ update_rkhunter() {
 
     echo "Latest RKHunter version: $latest_version"
 
+    # Download required files
     local file_base_url="$base_url/$latest_version/files/"
     local files=("mirrors.dat" "programs_bad.dat" "backdoorports.dat" "i18n.versions")
-
     for file in "${files[@]}"; do
         local url="${file_base_url}${file}"
         local dest="/var/lib/rkhunter/db/${file}"
-        download_and_validate "$url" "$dest" || echo "Skipping $file due to repeated failure."
+        if curl -f -s "$url" -o "$dest"; then
+            echo "Downloaded $file."
+        else
+            echo "Failed to download $file. Skipping."
+        fi
     done
-
-    mkdir -p /var/lib/rkhunter/db/i18n
-    if [[ ! -f /var/lib/rkhunter/db/i18n/en ]]; then
-        echo "Creating placeholder English language file..."
-        echo "English language file placeholder" > /var/lib/rkhunter/db/i18n/en
-    fi
 
     rkhunter --propupd
 }
 
-# Function to query and apply latest sysctl hardening
+# Function to apply sysctl hardening
 update_sysctl() {
-    echo "Applying sysctl hardening with dynamic updates..."
+    echo "Applying sysctl hardening..."
     local hardening_url="https://raw.githubusercontent.com/BetterLinuxSecurity/sysctl-hardening/main/sysctl.conf"
-    local dest="/etc/sysctl.d/99-hardening.conf"
-
-    echo "Downloading the latest sysctl hardening configuration..."
-    download_and_validate "$hardening_url" "$dest"
-
+    if curl -f -s "$hardening_url" -o /etc/sysctl.d/99-hardening.conf; then
+        echo "Downloaded latest sysctl hardening rules."
+    else
+        echo "Failed to download sysctl hardening rules."
+        return 1
+    fi
     sysctl --system
 }
 
-# Function to configure and enable UFW
+# Function to configure UFW
 configure_ufw() {
     echo "Configuring UFW (firewall)..."
     install_if_missing "ufw"
@@ -118,21 +112,44 @@ configure_ufw() {
     ufw enable
 }
 
-# Function to configure and update AuditD
+# Function to update AuditD
 update_auditd() {
     echo "Setting up AuditD for logging..."
     install_if_missing "auditd"
-    auditctl -e 1
 
     local audit_rules_url="https://raw.githubusercontent.com/linux-audit/audit-config/master/audit.rules"
-    local dest="/etc/audit/rules.d/hardening.rules"
-
-    echo "Downloading the latest AuditD rules..."
-    download_and_validate "$audit_rules_url" "$dest"
+    if curl -f -s "$audit_rules_url" -o /etc/audit/rules.d/hardening.rules; then
+        echo "Downloaded latest AuditD rules."
+    else
+        echo "Failed to download AuditD rules."
+        return 1
+    fi
 
     sudo augenrules --load
     sudo systemctl enable auditd
     sudo systemctl restart auditd
+}
+
+# Function to harden password policies
+harden_password_policy() {
+    echo "Configuring password policies..."
+    sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
+    sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+    sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
+}
+
+# Function to disable unnecessary protocols
+disable_unnecessary_protocols() {
+    echo "Disabling unnecessary protocols..."
+    for protocol in dccp sctp rds tipc; do
+        echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf
+    done
+}
+
+# Function to disable core dumps
+disable_core_dumps() {
+    echo "Disabling core dumps..."
+    echo '* hard core 0' >> /etc/security/limits.conf
 }
 
 # Update and upgrade system
@@ -146,15 +163,16 @@ for tool in "${ESSENTIAL_TOOLS[@]}"; do
     install_if_missing "$tool"
 done
 
-# Apply all dynamic updates
+# Apply all hardening steps
 update_fail2ban
 update_rkhunter
 update_sysctl
 configure_ufw
 update_auditd
-
-# Run Lynis audit
+harden_password_policy
+disable_unnecessary_protocols
+disable_core_dumps
 run_lynis_audit
 
 # Final message
-echo "Comprehensive server hardening script completed successfully with dynamic updates. Please review logs for details."
+echo "Comprehensive server hardening script completed successfully. Please review logs for details."
