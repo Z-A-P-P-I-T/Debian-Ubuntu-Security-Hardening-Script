@@ -27,27 +27,14 @@ install_if_missing() {
     fi
 }
 
-# Function to download and validate a file
-download_and_validate() {
-    local url="$1"
-    local dest="$2"
-    local retries=3
-
-    for ((i = 1; i <= retries; i++)); do
-        echo "Attempt $i to download $url..."
-        wget -q -O "$dest" "$url"
-
-        if [[ -f "$dest" && -s "$dest" ]]; then
-            echo "Downloaded and validated: $dest"
-            return 0
-        else
-            echo "Failed to validate $dest. Retrying..."
-            sleep 5
-        fi
-    done
-
-    echo "Failed to download or validate $url after $retries attempts."
-    return 1
+# Function to run Lynis audit
+run_lynis_audit() {
+    echo "Running Lynis system audit..."
+    install_if_missing "lynis"
+    
+    # Run the Lynis audit and save output
+    lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat > /tmp/lynis-output.txt
+    echo "Lynis audit completed. Report saved to /var/log/lynis.log and /var/log/lynis-report.dat"
 }
 
 # Function to query and apply latest Fail2Ban configuration
@@ -166,5 +153,8 @@ update_sysctl
 configure_ufw
 update_auditd
 
+# Run Lynis audit
+run_lynis_audit
+
 # Final message
-echo "Comprehensive server hardening script completed successfully with dynamic updates from official sources. Please review logs for details."
+echo "Comprehensive server hardening script completed successfully with dynamic updates. Please review logs for details."
