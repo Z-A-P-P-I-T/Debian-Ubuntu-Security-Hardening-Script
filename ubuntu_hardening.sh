@@ -19,6 +19,13 @@ ESSENTIAL_PACKAGES="lynis libpam-tmpdir apt-listchanges needrestart rkhunter bsd
 echo "Installing essential packages: $ESSENTIAL_PACKAGES"
 sudo apt install -y $ESSENTIAL_PACKAGES
 
+# Install and configure Postfix in 'No configuration' mode
+echo "Installing Postfix in 'No configuration' mode..."
+sudo DEBIAN_FRONTEND=noninteractive apt install -y postfix
+sudo debconf-set-selections <<< "postfix postfix/main_mailer_type select No configuration"
+sudo dpkg-reconfigure -f noninteractive postfix
+sudo systemctl restart postfix
+
 # Run Lynis scan
 echo "Running Lynis scan..."
 sudo lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat > /tmp/lynis-output.txt
