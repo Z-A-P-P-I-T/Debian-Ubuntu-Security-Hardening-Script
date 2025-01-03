@@ -73,19 +73,26 @@ else
 fi
 
 # Install and configure rkhunter
-echo "Installing rkhunter..."
+echo "Installing and configuring rkhunter..."
 sudo apt install -y rkhunter
-sudo sed -i 's|WEB_CMD="/bin/true"|WEB_CMD=""|' /etc/rkhunter.conf
+sudo sed -i 's|^WEB_CMD=.*|WEB_CMD=""|' /etc/rkhunter.conf
 echo "Updating rkhunter data files..."
 sudo rkhunter --update || echo "RKHunter update failed. Check /var/log/rkhunter.log."
 sudo rkhunter --propupd
+
+# Configure SSH banner only if OpenSSH is installed
+if [ -f /etc/ssh/sshd_config ]; then
+    echo "Configuring SSH legal banner..."
+    sudo sed -i 's|#Banner none|Banner /etc/issue.net|' /etc/ssh/sshd_config
+    sudo systemctl restart sshd
+else
+    echo "OpenSSH is not installed. Skipping SSH configuration."
+fi
 
 # Configure legal banners
 echo "Configuring legal banners..."
 echo "Authorized access only. Unauthorized access is prohibited." | sudo tee /etc/issue
 echo "Authorized access only. Unauthorized access is prohibited." | sudo tee /etc/issue.net
-sudo sed -i 's|#Banner none|Banner /etc/issue.net|' /etc/ssh/sshd_config
-sudo systemctl restart sshd
 
 # Configure password settings
 echo "Configuring password settings..."
