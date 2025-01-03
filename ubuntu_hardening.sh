@@ -88,12 +88,13 @@ if ! rkhunter --update; then
     echo "RKHunter update failed. Attempting manual update..."
     # Create necessary directories
     mkdir -p /var/lib/rkhunter/db/i18n
+    echo "English language file placeholder" > /var/lib/rkhunter/db/i18n/en
 
     # Download updated files
-    wget -O /var/lib/rkhunter/db/mirrors.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/mirrors.dat || echo "Failed to download mirrors.dat."
-    wget -O /var/lib/rkhunter/db/programs_bad.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/programs_bad.dat || echo "Failed to download programs_bad.dat."
-    wget -O /var/lib/rkhunter/db/backdoorports.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/backdoorports.dat || echo "Failed to download backdoorports.dat."
-    wget -O /var/lib/rkhunter/db/i18n.versions https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/i18n.versions || echo "Failed to download i18n.versions."
+    wget -O /var/lib/rkhunter/db/mirrors.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/files/mirrors.dat || echo "Failed to download mirrors.dat."
+    wget -O /var/lib/rkhunter/db/programs_bad.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/files/programs_bad.dat || echo "Failed to download programs_bad.dat."
+    wget -O /var/lib/rkhunter/db/backdoorports.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/files/backdoorports.dat || echo "Failed to download backdoorports.dat."
+    wget -O /var/lib/rkhunter/db/i18n.versions https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/files/i18n.versions || echo "Failed to download i18n.versions."
     
     chmod 644 /var/lib/rkhunter/db/*
 fi
