@@ -78,13 +78,12 @@ sudo apt install -y rkhunter
 sudo sed -i 's|^WEB_CMD=.*|WEB_CMD=""|' /etc/rkhunter.conf
 
 echo "Updating rkhunter data files..."
-if sudo rkhunter --update; then
-    echo "RKHunter updated successfully."
-else
+if ! sudo rkhunter --update; then
     echo "RKHunter update failed. Attempting manual update..."
-    sudo wget -O /var/lib/rkhunter/db/mirrors.dat http://rkhunter.sourceforge.net/mirrors.dat || echo "Failed to download mirrors.dat."
-    sudo wget -O /var/lib/rkhunter/db/programs_bad.dat http://rkhunter.sourceforge.net/data/programs_bad.dat || echo "Failed to download programs_bad.dat."
-    sudo wget -O /var/lib/rkhunter/db/backdoorports.dat http://rkhunter.sourceforge.net/data/backdoorports.dat || echo "Failed to download backdoorports.dat."
+    sudo wget -O /var/lib/rkhunter/db/mirrors.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/mirrors.dat || echo "Failed to download mirrors.dat."
+    sudo wget -O /var/lib/rkhunter/db/programs_bad.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/programs_bad.dat || echo "Failed to download programs_bad.dat."
+    sudo wget -O /var/lib/rkhunter/db/backdoorports.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/backdoorports.dat || echo "Failed to download backdoorports.dat."
+    sudo wget -O /var/lib/rkhunter/db/i18n.versions https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/i18n.versions || echo "Failed to download i18n.versions."
 fi
 sudo rkhunter --propupd
 
