@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Ensure the script is run with root privileges
+if [[ "$EUID" -ne 0 ]]; then
+    echo "This script must be run as root. Please use 'sudo' or log in as root."
+    exit 1
+fi
+
 # Enable strict error handling
 set -euo pipefail
 trap 'echo "Error on line $LINENO"; exit 1' ERR
@@ -12,104 +18,106 @@ echo "Starting server hardening script..."
 
 # Update and upgrade system
 echo "Updating and upgrading system..."
-sudo apt update && sudo apt upgrade -y
+apt update && apt upgrade -y
 
 # Pre-configure Postfix to avoid prompts
 echo "Pre-configuring Postfix for 'No configuration' mode..."
-sudo debconf-set-selections <<< "postfix postfix/main_mailer_type select No configuration"
-sudo debconf-set-selections <<< "postfix postfix/mailname string localhost"
+debconf-set-selections <<< "postfix postfix/main_mailer_type select No configuration"
+debconf-set-selections <<< "postfix postfix/mailname string localhost"
 
 # Install Postfix in non-interactive mode
 echo "Installing Postfix in 'No configuration' mode..."
-sudo DEBIAN_FRONTEND=noninteractive apt install -y postfix
-sudo systemctl restart postfix
+DEBIAN_FRONTEND=noninteractive apt install -y postfix
+systemctl restart postfix
 
 # Install essential packages
 ESSENTIAL_PACKAGES="lynis libpam-tmpdir apt-listchanges needrestart rkhunter bsd-mailx apt-show-versions debsums"
 echo "Installing essential packages: $ESSENTIAL_PACKAGES"
-sudo apt install -y $ESSENTIAL_PACKAGES
+apt install -y $ESSENTIAL_PACKAGES
 
 # Run Lynis scan
 echo "Running Lynis scan..."
-sudo lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat > /tmp/lynis-output.txt
+lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat > /tmp/lynis-output.txt
 
 # Set up fail2ban
 echo "Setting up fail2ban..."
-if sudo apt install -y fail2ban; then
-    sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
-    
+if apt install -y fail2ban; then
+    cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+
     # Check if IPv6 is enabled
     if [ -n "$(ip -6 addr show scope global)" ]; then
         echo "IPv6 is enabled. Keeping IPv6 support in Fail2ban."
     else
         echo "IPv6 is not in use. Disabling IPv6 support in Fail2ban."
-        sudo sed -i '/\[DEFAULT\]/a allowipv6 = no' /etc/fail2ban/jail.local
+        sed -i '/\[DEFAULT\]/a allowipv6 = no' /etc/fail2ban/jail.local
     fi
 
-    sudo systemctl enable fail2ban
-    sudo systemctl start fail2ban
+    systemctl enable fail2ban
+    systemctl start fail2ban
 else
     echo "Fail2ban installation failed. Skipping..."
 fi
 
 # Enable sysstat for accounting
 echo "Enabling sysstat..."
-sudo apt install -y sysstat
-sudo systemctl enable sysstat
-sudo systemctl start sysstat
+apt install -y sysstat
+systemctl enable sysstat
+systemctl start sysstat
 
 # Set up auditd
 echo "Setting up auditd..."
-if sudo apt install -y auditd; then
-    echo "-w /etc/passwd -p wa -k passwd_changes" | sudo tee /etc/audit/rules.d/passwd_changes.rules
-    echo "-w /etc/group -p wa -k group_changes" | sudo tee /etc/audit/rules.d/group_changes.rules
-    echo "-w /etc/shadow -p wa -k shadow_changes" | sudo tee /etc/audit/rules.d/shadow_changes.rules
-    echo "-w /var/log/ -p wa -k log_changes" | sudo tee /etc/audit/rules.d/log_changes.rules
-    sudo augenrules --load
-    sudo systemctl enable auditd
-    sudo systemctl start auditd
+if apt install -y auditd; then
+    echo "-w /etc/passwd -p wa -k passwd_changes" | tee /etc/audit/rules.d/passwd_changes.rules
+    echo "-w /etc/group -p wa -k group_changes" | tee /etc/audit/rules.d/group_changes.rules
+    echo "-w /etc/shadow -p wa -k shadow_changes" | tee /etc/audit/rules.d/shadow_changes.rules
+    echo "-w /var/log/ -p wa -k log_changes" | tee /etc/audit/rules.d/log_changes.rules
+    augenrules --load
+    systemctl enable auditd
+    systemctl start auditd
 else
     echo "Auditd installation failed. Skipping..."
 fi
 
 # Install and configure rkhunter
 echo "Installing and configuring rkhunter..."
-sudo apt install -y rkhunter
-sudo sed -i 's|^WEB_CMD=.*|WEB_CMD=""|' /etc/rkhunter.conf
+apt install -y rkhunter
+sed -i 's|^WEB_CMD=.*|WEB_CMD=""|' /etc/rkhunter.conf
 
 echo "Updating rkhunter data files..."
-if ! sudo rkhunter --update; then
+if ! rkhunter --update; then
     echo "RKHunter update failed. Attempting manual update..."
-    sudo wget -O /var/lib/rkhunter/db/mirrors.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/mirrors.dat || echo "Failed to download mirrors.dat."
-    sudo wget -O /var/lib/rkhunter/db/programs_bad.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/programs_bad.dat || echo "Failed to download programs_bad.dat."
-    sudo wget -O /var/lib/rkhunter/db/backdoorports.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/backdoorports.dat || echo "Failed to download backdoorports.dat."
-    sudo wget -O /var/lib/rkhunter/db/i18n.versions https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/i18n.versions || echo "Failed to download i18n.versions."
+    rm -rf /var/lib/rkhunter/db/*
+    wget -O /var/lib/rkhunter/db/mirrors.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/mirrors.dat || echo "Failed to download mirrors.dat."
+    wget -O /var/lib/rkhunter/db/programs_bad.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/programs_bad.dat || echo "Failed to download programs_bad.dat."
+    wget -O /var/lib/rkhunter/db/backdoorports.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/backdoorports.dat || echo "Failed to download backdoorports.dat."
+    wget -O /var/lib/rkhunter/db/i18n.versions https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/i18n.versions || echo "Failed to download i18n.versions."
+    chmod 644 /var/lib/rkhunter/db/*
 fi
-sudo rkhunter --propupd
+rkhunter --propupd
 
 # Configure SSH banner only if OpenSSH is installed
 if [ -f /etc/ssh/sshd_config ]; then
     echo "Configuring SSH legal banner..."
-    sudo sed -i 's|#Banner none|Banner /etc/issue.net|' /etc/ssh/sshd_config
-    sudo systemctl restart sshd
+    sed -i 's|#Banner none|Banner /etc/issue.net|' /etc/ssh/sshd_config
+    systemctl restart sshd
 else
     echo "OpenSSH is not installed. Skipping SSH configuration."
 fi
 
 # Configure legal banners
 echo "Configuring legal banners..."
-echo "Authorized access only. Unauthorized access is prohibited." | sudo tee /etc/issue
-echo "Authorized access only. Unauthorized access is prohibited." | sudo tee /etc/issue.net
+echo "Authorized access only. Unauthorized access is prohibited." | tee /etc/issue
+echo "Authorized access only. Unauthorized access is prohibited." | tee /etc/issue.net
 
 # Configure password settings
 echo "Configuring password settings..."
-sudo sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
-sudo sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
-sudo sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
+sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
+sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
 
 # Disable core dumps
 echo "Disabling core dumps..."
-echo '* hard core 0' | sudo tee -a /etc/security/limits.conf
+echo '* hard core 0' | tee -a /etc/security/limits.conf
 
 # Recommend partitioning
 echo "Consider adding separate partitions for /home, /tmp, and /var. This requires manual intervention."
@@ -117,24 +125,24 @@ echo "Consider adding separate partitions for /home, /tmp, and /var. This requir
 # Disable unnecessary protocols
 echo "Disabling unnecessary protocols..."
 for protocol in dccp sctp rds tipc; do
-    echo "blacklist $protocol" | sudo tee -a /etc/modprobe.d/blacklist.conf
+    echo "blacklist $protocol" | tee -a /etc/modprobe.d/blacklist.conf
 done
 
 # Enable process accounting
 echo "Enabling process accounting..."
-sudo apt install -y acct
-sudo systemctl enable acct
-sudo systemctl start acct
+apt install -y acct
+systemctl enable acct
+systemctl start acct
 
 # Install AIDE for file integrity monitoring
 echo "Installing AIDE..."
-sudo apt install -y aide
-sudo aideinit
-sudo mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+apt install -y aide
+aideinit
+mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
 
 # Apply sysctl hardening
 echo "Applying sysctl hardening..."
-sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<EOF
+tee /etc/sysctl.d/99-hardening.conf > /dev/null <<EOF
 net.ipv4.conf.all.rp_filter = 1
 net.ipv4.conf.default.rp_filter = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -149,18 +157,18 @@ net.ipv6.conf.default.disable_ipv6 = 1
 kernel.randomize_va_space = 2
 kernel.sysrq = 0
 EOF
-sudo sysctl --system
+sysctl --system
 
 # Restrict compiler access
 echo "Restricting compiler access..."
 if [ -f /usr/bin/gcc ]; then
-    sudo chmod o-rx /usr/bin/gcc
+    chmod o-rx /usr/bin/gcc
 else
     echo "GCC is not installed. Skipping GCC restrictions."
 fi
 
 if [ -f /usr/bin/cc ]; then
-    sudo chmod o-rx /usr/bin/cc
+    chmod o-rx /usr/bin/cc
 else
     echo "CC is not installed. Skipping CC restrictions."
 fi
@@ -168,18 +176,18 @@ fi
 # Check and restart services after library updates
 if command -v needrestart >/dev/null; then
     echo "Checking and restarting services after updates..."
-    sudo needrestart -r a
+    needrestart -r a
 else
     echo "Needrestart is not installed. Skipping..."
 fi
 
 # Set up UFW (firewall)
 echo "Setting up UFW..."
-sudo apt install -y ufw
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow ssh
-sudo ufw enable
+apt install -y ufw
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw enable
 
 # Final message
 echo "Security hardening script completed. Review manual steps and verify changes."
