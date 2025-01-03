@@ -86,11 +86,15 @@ sed -i 's|^WEB_CMD=.*|WEB_CMD=""|' /etc/rkhunter.conf
 echo "Updating rkhunter data files..."
 if ! rkhunter --update; then
     echo "RKHunter update failed. Attempting manual update..."
-    rm -rf /var/lib/rkhunter/db/*
-    wget -O /var/lib/rkhunter/db/mirrors.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/mirrors.dat || echo "Failed to download mirrors.dat."
-    wget -O /var/lib/rkhunter/db/programs_bad.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/programs_bad.dat || echo "Failed to download programs_bad.dat."
-    wget -O /var/lib/rkhunter/db/backdoorports.dat https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/backdoorports.dat || echo "Failed to download backdoorports.dat."
-    wget -O /var/lib/rkhunter/db/i18n.versions https://raw.githubusercontent.com/wayne37/rkhunter-mirrors/main/i18n.versions || echo "Failed to download i18n.versions."
+    # Create necessary directories
+    mkdir -p /var/lib/rkhunter/db/i18n
+
+    # Download updated files
+    wget -O /var/lib/rkhunter/db/mirrors.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/mirrors.dat || echo "Failed to download mirrors.dat."
+    wget -O /var/lib/rkhunter/db/programs_bad.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/programs_bad.dat || echo "Failed to download programs_bad.dat."
+    wget -O /var/lib/rkhunter/db/backdoorports.dat https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/backdoorports.dat || echo "Failed to download backdoorports.dat."
+    wget -O /var/lib/rkhunter/db/i18n.versions https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/i18n.versions || echo "Failed to download i18n.versions."
+    
     chmod 644 /var/lib/rkhunter/db/*
 fi
 rkhunter --propupd
