@@ -14,17 +14,20 @@ echo "Starting server hardening script..."
 echo "Updating and upgrading system..."
 sudo apt update && sudo apt upgrade -y
 
+# Pre-configure Postfix to avoid prompts
+echo "Pre-configuring Postfix for 'No configuration' mode..."
+sudo debconf-set-selections <<< "postfix postfix/main_mailer_type select No configuration"
+sudo debconf-set-selections <<< "postfix postfix/mailname string localhost"
+
+# Install Postfix in non-interactive mode
+echo "Installing Postfix in 'No configuration' mode..."
+sudo DEBIAN_FRONTEND=noninteractive apt install -y postfix
+sudo systemctl restart postfix
+
 # Install essential packages
 ESSENTIAL_PACKAGES="lynis libpam-tmpdir apt-listchanges needrestart rkhunter bsd-mailx apt-show-versions debsums"
 echo "Installing essential packages: $ESSENTIAL_PACKAGES"
 sudo apt install -y $ESSENTIAL_PACKAGES
-
-# Install and configure Postfix in 'No configuration' mode
-echo "Installing Postfix in 'No configuration' mode..."
-sudo DEBIAN_FRONTEND=noninteractive apt install -y postfix
-sudo debconf-set-selections <<< "postfix postfix/main_mailer_type select No configuration"
-sudo dpkg-reconfigure -f noninteractive postfix
-sudo systemctl restart postfix
 
 # Run Lynis scan
 echo "Running Lynis scan..."
