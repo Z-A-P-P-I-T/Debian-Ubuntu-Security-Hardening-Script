@@ -76,8 +76,16 @@ fi
 echo "Installing and configuring rkhunter..."
 sudo apt install -y rkhunter
 sudo sed -i 's|^WEB_CMD=.*|WEB_CMD=""|' /etc/rkhunter.conf
+
 echo "Updating rkhunter data files..."
-sudo rkhunter --update || echo "RKHunter update failed. Check /var/log/rkhunter.log."
+if sudo rkhunter --update; then
+    echo "RKHunter updated successfully."
+else
+    echo "RKHunter update failed. Attempting manual update..."
+    sudo wget -O /var/lib/rkhunter/db/mirrors.dat http://rkhunter.sourceforge.net/mirrors.dat || echo "Failed to download mirrors.dat."
+    sudo wget -O /var/lib/rkhunter/db/programs_bad.dat http://rkhunter.sourceforge.net/data/programs_bad.dat || echo "Failed to download programs_bad.dat."
+    sudo wget -O /var/lib/rkhunter/db/backdoorports.dat http://rkhunter.sourceforge.net/data/backdoorports.dat || echo "Failed to download backdoorports.dat."
+fi
 sudo rkhunter --propupd
 
 # Configure SSH banner only if OpenSSH is installed
@@ -146,7 +154,17 @@ sudo sysctl --system
 
 # Restrict compiler access
 echo "Restricting compiler access..."
-sudo chmod o-rx /usr/bin/gcc /usr/bin/cc
+if [ -f /usr/bin/gcc ]; then
+    sudo chmod o-rx /usr/bin/gcc
+else
+    echo "GCC is not installed. Skipping GCC restrictions."
+fi
+
+if [ -f /usr/bin/cc ]; then
+    sudo chmod o-rx /usr/bin/cc
+else
+    echo "CC is not installed. Skipping CC restrictions."
+fi
 
 # Check and restart services after library updates
 if command -v needrestart >/dev/null; then
