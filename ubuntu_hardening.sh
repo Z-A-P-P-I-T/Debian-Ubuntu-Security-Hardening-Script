@@ -43,8 +43,11 @@ install_package() {
 
 # Update and upgrade system
 echo "Updating and upgrading system..." | tee -a $LOGFILE
-apt-get update && apt-get full-upgrade -y || log_failure "System update and upgrade"
-log_success "System update and upgrade"
+if apt-get update && apt-get full-upgrade -y; then
+    log_success "System update and upgrade"
+else
+    log_failure "System update and upgrade"
+fi
 
 # Install essential packages
 echo "Installing essential packages..." | tee -a $LOGFILE
@@ -56,8 +59,11 @@ log_success "Essential packages installation"
 
 # Run Lynis audit
 echo "Running Lynis audit..." | tee -a $LOGFILE
-lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat || log_failure "Lynis audit"
-log_success "Lynis audit"
+if lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat; then
+    log_success "Lynis audit"
+else
+    log_failure "Lynis audit"
+fi
 
 # Configure Fail2Ban
 echo "Configuring Fail2Ban..." | tee -a $LOGFILE
@@ -77,17 +83,22 @@ maxretry = 5
 enabled = true
 EOF
 
-systemctl enable fail2ban
-systemctl restart fail2ban || log_failure "Fail2Ban configuration"
-log_success "Fail2Ban configuration"
+if systemctl enable fail2ban && systemctl restart fail2ban; then
+    log_success "Fail2Ban configuration"
+else
+    log_failure "Fail2Ban configuration"
+fi
 
 # Configure UFW
 echo "Configuring UFW..." | tee -a $LOGFILE
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow ssh
-ufw enable || log_failure "UFW configuration"
-log_success "UFW configuration"
+if ufw enable; then
+    log_success "UFW configuration"
+else
+    log_failure "UFW configuration"
+fi
 
 # Configure AuditD
 echo "Configuring AuditD..." | tee -a $LOGFILE
@@ -102,49 +113,71 @@ fi
 > /etc/audit/audit.rules
 > /etc/audit/rules.d/hardening.rules
 
-# Add minimal necessary rules
+# Add minimal rules
 cat <<EOF > /etc/audit/rules.d/hardening.rules
 -w /etc/passwd -p wa -k passwd_changes
 -w /etc/group -p wa -k group_changes
 -w /etc/shadow -p wa -k shadow_changes
 EOF
 
-# Validate rules and reload AuditD
+# Validate and reload rules
 if augenrules --load; then
     systemctl restart auditd || log_failure "Restarting AuditD"
     log_success "AuditD configuration and rule loading"
 else
-    log_failure "Failed to load AuditD rules. Please check /var/log/audit/audit.log for details."
+    echo "AuditD rule loading failed. Attempting to reinstall AuditD..." | tee -a $LOGFILE
+    apt-get install --reinstall -y auditd || log_failure "Reinstalling AuditD"
+    if augenrules --load; then
+        systemctl restart auditd || log_failure "Restarting AuditD after reinstall"
+        log_success "AuditD configuration and rule loading after reinstall"
+    else
+        log_failure "AuditD configuration failed after reinstall"
+    fi
 fi
 
 # Update RKHunter
 echo "Updating RKHunter..." | tee -a $LOGFILE
-rkhunter --update || log_failure "RKHunter update"
-rkhunter --propupd || log_failure "RKHunter propupd"
-log_success "RKHunter update and configuration"
+if rkhunter --update && rkhunter --propupd; then
+    log_success "RKHunter update and configuration"
+else
+    log_failure "RKHunter update"
+fi
 
 # Configure Legal Banners
 echo "Configuring legal banners..." | tee -a $LOGFILE
-echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue
-echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue.net
-log_success "Legal banners configuration"
+if echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue &&
+   echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue.net; then
+    log_success "Legal banners configuration"
+else
+    log_failure "Legal banners configuration"
+fi
 
 # Configure Password Policies
 echo "Configuring password policies..." | tee -a $LOGFILE
-sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
-sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
-sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
-log_success "Password policy configuration"
+if sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs &&
+   sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs &&
+   sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs; then
+    log_success "Password policy configuration"
+else
+    log_failure "Password policy configuration"
+fi
 
 # Disable Core Dumps
 echo "Disabling core dumps..." | tee -a $LOGFILE
-echo '* hard core 0' >> /etc/security/limits.conf
-log_success "Core dumps disabling"
+if echo '* hard core 0' >> /etc/security/limits.conf; then
+    log_success "Core dumps disabling"
+else
+    log_failure "Core dumps disabling"
+fi
 
 # Disable Unnecessary Protocols
 echo "Disabling unnecessary protocols..." | tee -a $LOGFILE
 for protocol in dccp sctp rds tipc; do
-    echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf
+    if echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf; then
+        echo "$protocol protocol disabled." | tee -a $LOGFILE
+    else
+        log_failure "Disabling $protocol protocol"
+    fi
 done
 log_success "Unnecessary protocols disabling"
 
@@ -161,19 +194,28 @@ net.ipv4.conf.default.accept_redirects = 0
 net.ipv4.conf.all.secure_redirects = 0
 net.ipv4.conf.default.secure_redirects = 0
 EOF
-sysctl --system || log_failure "Sysctl hardening"
-log_success "Sysctl hardening"
+if sysctl --system; then
+    log_success "Sysctl hardening"
+else
+    log_failure "Sysctl hardening"
+fi
 
 # Initialize AIDE
 echo "Initializing AIDE..." | tee -a $LOGFILE
-aideinit || log_failure "AIDE initialization"
-mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db || log_failure "AIDE database move"
-log_success "AIDE initialization"
+if aideinit; then
+    mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db || log_failure "AIDE database move"
+    log_success "AIDE initialization"
+else
+    log_failure "AIDE initialization"
+fi
 
 # Restart Services
 echo "Restarting necessary services..." | tee -a $LOGFILE
-needrestart -r a || log_failure "Service restarts"
-log_success "Service restarts"
+if needrestart -r a; then
+    log_success "Service restarts"
+else
+    log_failure "Service restarts"
+fi
 
 # Final Message
 echo "Server hardening script completed successfully at $(date)." | tee -a $LOGFILE
