@@ -76,11 +76,51 @@ ufw allow ssh
 ufw enable || log_failure "UFW configuration"
 log_success "UFW configuration"
 
-# Update RKHunter
-echo "Updating RKHunter..." | tee -a $LOGFILE
-rkhunter --update || log_failure "RKHunter update"
-rkhunter --propupd || log_failure "RKHunter propupd"
-log_success "RKHunter update"
+# Update RKHunter dynamically with online validation
+update_rkhunter() {
+    echo "Updating RKHunter..." | tee -a $LOGFILE
+
+    # Ensure the RKHunter config is correct
+    sed -i 's|WEB_CMD="/bin/true"|WEB_CMD=""|' /etc/rkhunter.conf
+
+    # Try updating RKHunter automatically
+    if rkhunter --update; then
+        echo "RKHunter database updated successfully." | tee -a $LOGFILE
+    else
+        echo "RKHunter database update failed. Validating paths and performing manual update..." | tee -a $LOGFILE
+
+        # Define base URL
+        local base_url="https://sourceforge.net/projects/rkhunter/files"
+        local files=("mirrors.dat" "programs_bad.dat" "backdoorports.dat" "i18n.versions")
+
+        # Validate and download each file
+        mkdir -p /var/lib/rkhunter/db
+        for file in "${files[@]}"; do
+            # Construct the file URL dynamically
+            local file_url="$base_url/latest/download/$file"
+            
+            # Check if the file exists online
+            if curl -Ifs "$file_url"; then
+                echo "Verified $file_url exists. Downloading..." | tee -a $LOGFILE
+                if curl -f -s -o "/var/lib/rkhunter/db/$file" "$file_url"; then
+                    echo "$file downloaded successfully." | tee -a $LOGFILE
+                else
+                    echo "Failed to download $file from $file_url." | tee -a $LOGFILE
+                fi
+            else
+                echo "File $file not found at $file_url. Skipping." | tee -a $LOGFILE
+            fi
+        done
+
+        # Update file properties
+        if rkhunter --propupd; then
+            echo "RKHunter property update completed successfully." | tee -a $LOGFILE
+        else
+            echo "RKHunter property update failed. Check logs for details." | tee -a $LOGFILE
+        fi
+    fi
+}
+update_rkhunter
 
 # Apply sysctl hardening
 echo "Applying sysctl hardening..." | tee -a $LOGFILE
