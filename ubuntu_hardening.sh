@@ -113,7 +113,7 @@ fi
 > /etc/audit/audit.rules
 > /etc/audit/rules.d/hardening.rules
 
-# Add minimal rules
+# Add basic rules
 cat <<EOF > /etc/audit/rules.d/hardening.rules
 -w /etc/passwd -p wa -k passwd_changes
 -w /etc/group -p wa -k group_changes
@@ -125,13 +125,15 @@ if augenrules --load; then
     systemctl restart auditd || log_failure "Restarting AuditD"
     log_success "AuditD configuration and rule loading"
 else
-    echo "AuditD rule loading failed. Attempting to reinstall AuditD..." | tee -a $LOGFILE
-    apt-get install --reinstall -y auditd || log_failure "Reinstalling AuditD"
-    if augenrules --load; then
-        systemctl restart auditd || log_failure "Restarting AuditD after reinstall"
-        log_success "AuditD configuration and rule loading after reinstall"
+    echo "AuditD rule loading failed. Attempting to troubleshoot..." | tee -a $LOGFILE
+
+    # Apply single rule for debugging
+    echo "-w /etc/passwd -p wa -k passwd_changes" > /etc/audit/audit.rules
+    if augenrules --load && systemctl restart auditd; then
+        log_success "AuditD loaded successfully with minimal rules"
     else
-        log_failure "AuditD configuration failed after reinstall"
+        echo "AuditD still failed after applying minimal rules. Check logs for details." | tee -a $LOGFILE
+        log_failure "AuditD configuration"
     fi
 fi
 
