@@ -2,177 +2,132 @@
 
 # Ensure the script is run with root privileges
 if [[ "$EUID" -ne 0 ]]; then
-    echo "This script must be run as root. Please use 'sudo' or log in as root."
+    echo "This script must be run as root. Please use 'sudo'."
     exit 1
 fi
 
-# Enable strict error handling
-set -euo pipefail
-trap 'echo "Error on line $LINENO"; exit 1' ERR
-
 # Log file
-LOGFILE="/var/log/hardening_script.log"
+LOGFILE="/var/log/server_hardening.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 
-echo "Starting comprehensive server hardening script with dynamic updates..."
+echo "Starting server hardening script at $(date)..."
 
-# Function to check and install a package
-install_if_missing() {
+# Error handling
+set -euo pipefail
+trap 'echo "Error on line $LINENO. Check $LOGFILE for details." | tee -a $LOGFILE; exit 1' ERR
+
+# Function to log success
+log_success() {
+    local step="$1"
+    echo "✔ [$step] completed successfully at $(date)." | tee -a $LOGFILE
+}
+
+# Function to log failure
+log_failure() {
+    local step="$1"
+    echo "✖ [$step] failed at $(date). Check $LOGFILE for details." | tee -a $LOGFILE
+    exit 1
+}
+
+# Function to install a package
+install_package() {
     local package="$1"
+    echo "Checking if $package is installed..." | tee -a $LOGFILE
     if ! dpkg -l | grep -q "^ii  $package"; then
-        echo "$package is not installed. Installing..."
-        apt install -y "$package"
+        echo "Installing $package..." | tee -a $LOGFILE
+        apt-get install -y "$package" || log_failure "Installing $package"
     else
-        echo "$package is already installed."
+        echo "$package is already installed." | tee -a $LOGFILE
     fi
-}
-
-# Function to run Lynis audit
-run_lynis_audit() {
-    echo "Running Lynis system audit..."
-    install_if_missing "lynis"
-
-    lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat || {
-        echo "Lynis audit failed. Check /var/log/lynis.log for details."
-        return 1
-    }
-    echo "Lynis audit completed."
-}
-
-# Function to configure Fail2Ban
-update_fail2ban() {
-    echo "Updating Fail2Ban..."
-    install_if_missing "fail2ban"
-
-    local config_url="https://raw.githubusercontent.com/fail2ban/fail2ban/master/config/jail.conf"
-    if curl -f -s "$config_url" -o /etc/fail2ban/jail.local; then
-        echo "Downloaded latest Fail2Ban configuration."
-    else
-        echo "Failed to download Fail2Ban configuration. Using default."
-        cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
-    fi
-
-    systemctl enable fail2ban
-    systemctl restart fail2ban
-}
-
-# Function to update RKHunter
-update_rkhunter() {
-    echo "Updating RKHunter..."
-    install_if_missing "rkhunter"
-
-    # Query for the latest RKHunter version dynamically
-    local base_url="https://sourceforge.net/projects/rkhunter/files/rkhunter"
-    local latest_version
-    latest_version=$(curl -s "$base_url" | grep -oP 'rkhunter/\K[\d.]+(?=/)' | sort -V | tail -n 1)
-
-    if [[ -z "$latest_version" ]]; then
-        echo "Failed to determine the latest RKHunter version. Using fallback version 1.4.6."
-        latest_version="1.4.6"
-    fi
-
-    echo "Latest RKHunter version: $latest_version"
-
-    # Download required files
-    local file_base_url="$base_url/$latest_version/files/"
-    local files=("mirrors.dat" "programs_bad.dat" "backdoorports.dat" "i18n.versions")
-    for file in "${files[@]}"; do
-        local url="${file_base_url}${file}"
-        local dest="/var/lib/rkhunter/db/${file}"
-        if curl -f -s "$url" -o "$dest"; then
-            echo "Downloaded $file."
-        else
-            echo "Failed to download $file. Skipping."
-        fi
-    done
-
-    rkhunter --propupd
-}
-
-# Function to apply sysctl hardening
-update_sysctl() {
-    echo "Applying sysctl hardening..."
-    local hardening_url="https://raw.githubusercontent.com/BetterLinuxSecurity/sysctl-hardening/main/sysctl.conf"
-    if curl -f -s "$hardening_url" -o /etc/sysctl.d/99-hardening.conf; then
-        echo "Downloaded latest sysctl hardening rules."
-    else
-        echo "Failed to download sysctl hardening rules."
-        return 1
-    fi
-    sysctl --system
-}
-
-# Function to configure UFW
-configure_ufw() {
-    echo "Configuring UFW (firewall)..."
-    install_if_missing "ufw"
-    ufw default deny incoming
-    ufw default allow outgoing
-    ufw allow ssh
-    ufw enable
-}
-
-# Function to update AuditD
-update_auditd() {
-    echo "Setting up AuditD for logging..."
-    install_if_missing "auditd"
-
-    local audit_rules_url="https://raw.githubusercontent.com/linux-audit/audit-config/master/audit.rules"
-    if curl -f -s "$audit_rules_url" -o /etc/audit/rules.d/hardening.rules; then
-        echo "Downloaded latest AuditD rules."
-    else
-        echo "Failed to download AuditD rules."
-        return 1
-    fi
-
-    sudo augenrules --load
-    sudo systemctl enable auditd
-    sudo systemctl restart auditd
-}
-
-# Function to harden password policies
-harden_password_policy() {
-    echo "Configuring password policies..."
-    sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
-    sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
-    sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
-}
-
-# Function to disable unnecessary protocols
-disable_unnecessary_protocols() {
-    echo "Disabling unnecessary protocols..."
-    for protocol in dccp sctp rds tipc; do
-        echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf
-    done
-}
-
-# Function to disable core dumps
-disable_core_dumps() {
-    echo "Disabling core dumps..."
-    echo '* hard core 0' >> /etc/security/limits.conf
 }
 
 # Update and upgrade system
-echo "Updating and upgrading system..."
-apt update && apt full-upgrade -y
+echo "Updating and upgrading system..." | tee -a $LOGFILE
+apt-get update && apt-get full-upgrade -y || log_failure "System update and upgrade"
+log_success "System update and upgrade"
 
-# Install essential tools
-ESSENTIAL_TOOLS=("perl" "wget" "curl" "lynx" "lynis" "libpam-tmpdir" "apt-listchanges" "needrestart" "bsd-mailx" "apt-show-versions" "debsums")
-echo "Checking and installing essential tools..."
-for tool in "${ESSENTIAL_TOOLS[@]}"; do
-    install_if_missing "$tool"
+# Install essential packages
+echo "Installing essential packages..." | tee -a $LOGFILE
+ESSENTIAL_PACKAGES=("perl" "wget" "curl" "lynx" "lynis" "fail2ban" "ufw" "auditd" "rkhunter" "apt-listchanges" "debsums" "bsd-mailx")
+for package in "${ESSENTIAL_PACKAGES[@]}"; do
+    install_package "$package"
 done
+log_success "Essential packages installation"
 
-# Apply all hardening steps
-update_fail2ban
-update_rkhunter
-update_sysctl
-configure_ufw
-update_auditd
-harden_password_policy
-disable_unnecessary_protocols
-disable_core_dumps
-run_lynis_audit
+# Run Lynis audit
+echo "Running Lynis audit..." | tee -a $LOGFILE
+lynis audit system --quiet --logfile /var/log/lynis.log --report-file /var/log/lynis-report.dat || log_failure "Lynis audit"
+log_success "Lynis audit"
 
-# Final message
-echo "Comprehensive server hardening script completed successfully. Please review logs for details."
+# Configure Fail2Ban
+echo "Configuring Fail2Ban..." | tee -a $LOGFILE
+cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+sed -i '/\[DEFAULT\]/a ignoreip = 127.0.0.1/8' /etc/fail2ban/jail.local
+sed -i '/\[DEFAULT\]/a bantime = 3600' /etc/fail2ban/jail.local
+systemctl enable fail2ban
+systemctl restart fail2ban || log_failure "Fail2Ban configuration"
+log_success "Fail2Ban configuration"
+
+# Configure UFW
+echo "Configuring UFW..." | tee -a $LOGFILE
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw enable || log_failure "UFW configuration"
+log_success "UFW configuration"
+
+# Update RKHunter
+echo "Updating RKHunter..." | tee -a $LOGFILE
+rkhunter --update || log_failure "RKHunter update"
+rkhunter --propupd || log_failure "RKHunter propupd"
+log_success "RKHunter update"
+
+# Apply sysctl hardening
+echo "Applying sysctl hardening..." | tee -a $LOGFILE
+cat <<EOF >/etc/sysctl.d/99-hardening.conf
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+EOF
+sysctl --system || log_failure "Sysctl hardening"
+log_success "Sysctl hardening"
+
+# Harden password policies
+echo "Configuring password policies..." | tee -a $LOGFILE
+sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
+sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs || log_failure "Password policy hardening"
+log_success "Password policy hardening"
+
+# Disable unnecessary protocols
+echo "Disabling unnecessary protocols..." | tee -a $LOGFILE
+for protocol in dccp sctp rds tipc; do
+    echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf
+done || log_failure "Disabling unnecessary protocols"
+log_success "Disabling unnecessary protocols"
+
+# Disable core dumps
+echo "Disabling core dumps..." | tee -a $LOGFILE
+echo '* hard core 0' >> /etc/security/limits.conf || log_failure "Disabling core dumps"
+log_success "Disabling core dumps"
+
+# Configure AuditD
+echo "Setting up AuditD..." | tee -a $LOGFILE
+cat <<EOF >/etc/audit/rules.d/hardening.rules
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/group -p wa -k group_changes
+-w /etc/shadow -p wa -k shadow_changes
+EOF
+augenrules --load
+systemctl enable auditd
+systemctl restart auditd || log_failure "AuditD configuration"
+log_success "AuditD configuration"
+
+# Finalize
+echo "Server hardening script completed successfully at $(date)." | tee -a $LOGFILE
