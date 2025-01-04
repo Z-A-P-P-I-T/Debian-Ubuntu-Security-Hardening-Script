@@ -91,35 +91,30 @@ log_success "UFW configuration"
 
 # Configure AuditD
 echo "Configuring AuditD..." | tee -a $LOGFILE
+
+# Backup existing rules
 if [ -f /etc/audit/audit.rules ]; then
     cp /etc/audit/audit.rules /etc/audit/audit.rules.bak
     echo "Backed up existing AuditD rules to audit.rules.bak." | tee -a $LOGFILE
 fi
 
-audit_rules_file="/etc/audit/rules.d/hardening.rules"
-new_rules=(
-    "-w /etc/passwd -p wa -k passwd_changes"
-    "-w /etc/group -p wa -k group_changes"
-    "-w /etc/shadow -p wa -k shadow_changes"
-)
+# Clear existing rules
+> /etc/audit/audit.rules
+> /etc/audit/rules.d/hardening.rules
 
-# Reapply rules dynamically
-> "$audit_rules_file"
-for rule in "${new_rules[@]}"; do
-    if ! grep -qF "$rule" "$audit_rules_file"; then
-        echo "$rule" >> "$audit_rules_file"
-        echo "Added rule: $rule" | tee -a $LOGFILE
-    else
-        echo "Rule already exists: $rule" | tee -a $LOGFILE
-    fi
-done
+# Add minimal necessary rules
+cat <<EOF > /etc/audit/rules.d/hardening.rules
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/group -p wa -k group_changes
+-w /etc/shadow -p wa -k shadow_changes
+EOF
 
-# Load rules and restart AuditD
+# Validate rules and reload AuditD
 if augenrules --load; then
-    systemctl restart auditd || log_failure "AuditD configuration"
-    log_success "AuditD configuration"
+    systemctl restart auditd || log_failure "Restarting AuditD"
+    log_success "AuditD configuration and rule loading"
 else
-    log_failure "Failed to load AuditD rules. Please check /var/log/audit/audit.log."
+    log_failure "Failed to load AuditD rules. Please check /var/log/audit/audit.log for details."
 fi
 
 # Update RKHunter
