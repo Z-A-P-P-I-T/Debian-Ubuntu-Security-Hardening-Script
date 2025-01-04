@@ -179,14 +179,36 @@ if [ -f /etc/audit/audit.rules ]; then
     echo "Backed up existing AuditD rules to audit.rules.bak." | tee -a $LOGFILE
 fi
 
-# Add new rules
-cat <<EOF > /etc/audit/rules.d/hardening.rules
--w /etc/passwd -p wa -k passwd_changes
--w /etc/group -p wa -k group_changes
--w /etc/shadow -p wa -k shadow_changes
-EOF
+# Define new rules
+audit_rules_file="/etc/audit/rules.d/hardening.rules"
+new_rules=(
+    "-w /etc/passwd -p wa -k passwd_changes"
+    "-w /etc/group -p wa -k group_changes"
+    "-w /etc/shadow -p wa -k shadow_changes"
+)
 
-augenrules --load || log_failure "AuditD rule loading"
+# Create or update rules file
+echo "Updating AuditD rules..." | tee -a $LOGFILE
+> "$audit_rules_file" # Clear the file before adding rules
+for rule in "${new_rules[@]}"; do
+    if ! grep -qF "$rule" "$audit_rules_file"; then
+        echo "$rule" >> "$audit_rules_file"
+        echo "Added rule: $rule" | tee -a $LOGFILE
+    else
+        echo "Rule already exists: $rule" | tee -a $LOGFILE
+    fi
+done
+
+# Load the updated rules
+echo "Loading AuditD rules..." | tee -a $LOGFILE
+if augenrules --load; then
+    echo "AuditD rules loaded successfully." | tee -a $LOGFILE
+else
+    echo "Failed to load AuditD rules. Please check /var/log/audit/audit.log for details." | tee -a $LOGFILE
+    exit 1
+fi
+
+# Enable and restart AuditD
 systemctl enable auditd
 systemctl restart auditd || log_failure "AuditD configuration"
 log_success "AuditD configuration"
