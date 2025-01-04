@@ -48,7 +48,7 @@ log_success "System update and upgrade"
 
 # Install essential packages
 echo "Installing essential packages..." | tee -a $LOGFILE
-ESSENTIAL_PACKAGES=("perl" "wget" "curl" "lynx" "lynis" "fail2ban" "ufw" "auditd" "rkhunter" "apt-listchanges" "debsums" "bsd-mailx")
+ESSENTIAL_PACKAGES=("perl" "wget" "curl" "lynx" "lynis" "fail2ban" "ufw" "auditd" "rkhunter" "apt-listchanges" "debsums" "bsd-mailx" "sysstat" "acct" "aide")
 for package in "${ESSENTIAL_PACKAGES[@]}"; do
     install_package "$package"
 done
@@ -89,55 +89,58 @@ ufw allow ssh
 ufw enable || log_failure "UFW configuration"
 log_success "UFW configuration"
 
-# Update RKHunter dynamically with online validation
-update_rkhunter() {
-    echo "Updating RKHunter..." | tee -a $LOGFILE
+# Configure AuditD
+echo "Configuring AuditD..." | tee -a $LOGFILE
+if [ -f /etc/audit/audit.rules ]; then
+    mv /etc/audit/audit.rules /etc/audit/audit.rules.bak
+    echo "Backed up existing AuditD rules to audit.rules.bak." | tee -a $LOGFILE
+fi
 
-    # Ensure the RKHunter config is correct
-    sed -i 's|WEB_CMD="/bin/true"|WEB_CMD=""|' /etc/rkhunter.conf
+cat <<EOF > /etc/audit/rules.d/hardening.rules
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/group -p wa -k group_changes
+-w /etc/shadow -p wa -k shadow_changes
+EOF
 
-    # Try updating RKHunter automatically
-    if rkhunter --update; then
-        echo "RKHunter database updated successfully." | tee -a $LOGFILE
-    else
-        echo "RKHunter database update failed. Validating paths and performing manual update..." | tee -a $LOGFILE
+augenrules --load || log_failure "AuditD rule loading"
+systemctl enable auditd
+systemctl restart auditd || log_failure "AuditD configuration"
+log_success "AuditD configuration"
 
-        # Define base URL
-        local base_url="https://sourceforge.net/projects/rkhunter/files"
-        local files=("mirrors.dat" "programs_bad.dat" "backdoorports.dat" "i18n.versions")
+# Update RKHunter
+echo "Updating RKHunter..." | tee -a $LOGFILE
+rkhunter --update || log_failure "RKHunter update"
+rkhunter --propupd || log_failure "RKHunter propupd"
+log_success "RKHunter update and configuration"
 
-        # Validate and download each file
-        mkdir -p /var/lib/rkhunter/db
-        for file in "${files[@]}"; do
-            # Construct the file URL dynamically
-            local file_url="$base_url/latest/download/$file"
-            
-            # Check if the file exists online
-            if curl -Ifs "$file_url"; then
-                echo "Verified $file_url exists. Downloading..." | tee -a $LOGFILE
-                if curl -f -s -o "/var/lib/rkhunter/db/$file" "$file_url"; then
-                    echo "$file downloaded successfully." | tee -a $LOGFILE
-                else
-                    echo "Failed to download $file from $file_url." | tee -a $LOGFILE
-                fi
-            else
-                echo "File $file not found at $file_url. Skipping." | tee -a $LOGFILE
-            fi
-        done
+# Configure Legal Banners
+echo "Configuring legal banners..." | tee -a $LOGFILE
+echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue
+echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue.net
+log_success "Legal banners configuration"
 
-        # Update file properties
-        if rkhunter --propupd; then
-            echo "RKHunter property update completed successfully." | tee -a $LOGFILE
-        else
-            echo "RKHunter property update failed. Check logs for details." | tee -a $LOGFILE
-        fi
-    fi
-}
-update_rkhunter
+# Configure Password Policies
+echo "Configuring password policies..." | tee -a $LOGFILE
+sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
+sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
+log_success "Password policy configuration"
 
-# Apply sysctl hardening
+# Disable Core Dumps
+echo "Disabling core dumps..." | tee -a $LOGFILE
+echo '* hard core 0' >> /etc/security/limits.conf
+log_success "Core dumps disabling"
+
+# Disable Unnecessary Protocols
+echo "Disabling unnecessary protocols..." | tee -a $LOGFILE
+for protocol in dccp sctp rds tipc; do
+    echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf
+done
+log_success "Unnecessary protocols disabling"
+
+# Apply Sysctl Hardening
 echo "Applying sysctl hardening..." | tee -a $LOGFILE
-cat <<EOF >/etc/sysctl.d/99-hardening.conf
+cat <<EOF > /etc/sysctl.d/99-hardening.conf
 net.ipv4.conf.all.rp_filter = 1
 net.ipv4.conf.default.rp_filter = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -151,67 +154,16 @@ EOF
 sysctl --system || log_failure "Sysctl hardening"
 log_success "Sysctl hardening"
 
-# Harden password policies
-echo "Configuring password policies..." | tee -a $LOGFILE
-sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
-sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
-sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs || log_failure "Password policy hardening"
-log_success "Password policy hardening"
+# Initialize AIDE
+echo "Initializing AIDE..." | tee -a $LOGFILE
+aideinit || log_failure "AIDE initialization"
+mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db || log_failure "AIDE database move"
+log_success "AIDE initialization"
 
-# Disable unnecessary protocols
-echo "Disabling unnecessary protocols..." | tee -a $LOGFILE
-for protocol in dccp sctp rds tipc; do
-    echo "blacklist $protocol" >> /etc/modprobe.d/blacklist.conf
-done || log_failure "Disabling unnecessary protocols"
-log_success "Disabling unnecessary protocols"
+# Restart Services
+echo "Restarting necessary services..." | tee -a $LOGFILE
+needrestart -r a || log_failure "Service restarts"
+log_success "Service restarts"
 
-# Disable core dumps
-echo "Disabling core dumps..." | tee -a $LOGFILE
-echo '* hard core 0' >> /etc/security/limits.conf || log_failure "Disabling core dumps"
-log_success "Disabling core dumps"
-
-# Configure AuditD
-echo "Setting up AuditD..." | tee -a $LOGFILE
-
-# Backup existing rules
-if [ -f /etc/audit/audit.rules ]; then
-    mv /etc/audit/audit.rules /etc/audit/audit.rules.bak
-    echo "Backed up existing AuditD rules to audit.rules.bak." | tee -a $LOGFILE
-fi
-
-# Define new rules
-audit_rules_file="/etc/audit/rules.d/hardening.rules"
-new_rules=(
-    "-w /etc/passwd -p wa -k passwd_changes"
-    "-w /etc/group -p wa -k group_changes"
-    "-w /etc/shadow -p wa -k shadow_changes"
-)
-
-# Create or update rules file
-echo "Updating AuditD rules..." | tee -a $LOGFILE
-> "$audit_rules_file" # Clear the file before adding rules
-for rule in "${new_rules[@]}"; do
-    if ! grep -qF "$rule" "$audit_rules_file"; then
-        echo "$rule" >> "$audit_rules_file"
-        echo "Added rule: $rule" | tee -a $LOGFILE
-    else
-        echo "Rule already exists: $rule" | tee -a $LOGFILE
-    fi
-done
-
-# Load the updated rules
-echo "Loading AuditD rules..." | tee -a $LOGFILE
-if augenrules --load; then
-    echo "AuditD rules loaded successfully." | tee -a $LOGFILE
-else
-    echo "Failed to load AuditD rules. Please check /var/log/audit/audit.log for details." | tee -a $LOGFILE
-    exit 1
-fi
-
-# Enable and restart AuditD
-systemctl enable auditd
-systemctl restart auditd || log_failure "AuditD configuration"
-log_success "AuditD configuration"
-
-# Finalize
+# Final Message
 echo "Server hardening script completed successfully at $(date)." | tee -a $LOGFILE
