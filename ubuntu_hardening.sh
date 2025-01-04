@@ -10,7 +10,119 @@ log_success() {
 }
 
 log_failure() {
-    echo -e "\e[31m[FAILURE]\e[0m $1"
+    echo -e "\e[31m[FAILURE]\e[0m $1"#!/bin/bash
+
+# Logging setup
+LOG_FILE="/var/log/server_hardening.log"
+exec > >(tee -a $LOG_FILE) 2>&1
+
+echo "Starting security hardening at $(date)"
+
+# Function to ensure the correct RKHunter source and install it
+ensure_rkhunter_source() {
+    echo "Checking and updating RKHunter source..."
+    OFFICIAL_SOURCE="https://sourceforge.net/projects/rkhunter/files/latest/download"
+
+    if curl --head --silent --fail "$OFFICIAL_SOURCE" >/dev/null; then
+        echo "RKHunter source is reachable. Proceeding with download."
+        wget -q -O /tmp/rkhunter.tar.gz "$OFFICIAL_SOURCE"
+        tar -xzf /tmp/rkhunter.tar.gz -C /tmp
+        sudo /tmp/rkhunter*/installer.sh --install
+        sudo rkhunter --propupd
+    else
+        echo "Failed to reach the official RKHunter source. Skipping RKHunter installation."
+    fi
+}
+
+# Function to handle installation and reinstallation if needed
+ensure_package_installed() {
+    PACKAGE=$1
+    if ! dpkg -l | grep -q "^ii  $PACKAGE "; then
+        echo "Installing $PACKAGE..."
+        sudo apt install -y $PACKAGE
+    else
+        echo "$PACKAGE is already installed. Checking for updates..."
+        sudo apt install --reinstall -y $PACKAGE
+    fi
+}
+
+# Update and upgrade system packages
+echo "Updating system packages..."
+sudo apt update && sudo apt upgrade -y
+
+# Install essential security packages
+echo "Installing essential security packages..."
+PACKAGES=("lynis" "libpam-tmpdir" "apt-listchanges" "needrestart" "bsd-mailx" "apt-show-versions" "debsums" "fail2ban" "sysstat" "auditd" "aide")
+for PACKAGE in "${PACKAGES[@]}"; do
+    ensure_package_installed "$PACKAGE"
+done
+
+# Run Lynis security audit
+echo "Running Lynis audit..."
+if ! command -v lynis &>/dev/null; then
+    echo "Lynis not found. Installing..."
+    sudo apt install -y lynis
+fi
+sudo lynis audit system --quiet
+
+# Configure Fail2ban
+echo "Configuring Fail2ban..."
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+
+# Install and configure RKHunter
+echo "Installing and configuring RKHunter..."
+ensure_rkhunter_source
+
+# Configure AIDE for file integrity monitoring
+echo "Configuring AIDE..."
+sudo aideinit
+sudo cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+
+# Apply sysctl hardening
+echo "Applying sysctl hardening..."
+sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<EOF
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+EOF
+sudo sysctl --system
+
+# Disable unused protocols
+echo "Disabling unused protocols..."
+for protocol in dccp sctp rds tipc; do
+    echo "blacklist $protocol" | sudo tee -a /etc/modprobe.d/blacklist.conf
+done
+
+# Configure legal banners
+echo "Configuring legal banners..."
+sudo bash -c 'echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue'
+sudo bash -c 'echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue.net'
+
+# Configure password policies
+echo "Configuring password policies..."
+sudo sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs
+sudo sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+sudo sed -i 's/^UMASK.*/UMASK   027/' /etc/login.defs
+
+# Restrict compiler access
+echo "Restricting compiler access..."
+if [ -f /usr/bin/gcc ]; then
+    sudo chmod o-rx /usr/bin/gcc
+else
+    echo "GCC compiler not found. Skipping restriction."
+fi
+
+# Final message
+echo "Security hardening completed successfully at $(date)"
+echo "Check $LOG_FILE for full details."
+
 }
 
 retry_command() {
