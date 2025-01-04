@@ -61,9 +61,22 @@ log_success "Lynis audit"
 
 # Configure Fail2Ban
 echo "Configuring Fail2Ban..." | tee -a $LOGFILE
-cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
-sed -i '/\[DEFAULT\]/a ignoreip = 127.0.0.1/8' /etc/fail2ban/jail.local
-sed -i '/\[DEFAULT\]/a bantime = 3600' /etc/fail2ban/jail.local
+if [ -f /etc/fail2ban/jail.local ]; then
+    mv /etc/fail2ban/jail.local /etc/fail2ban/jail.local.bak
+    echo "Backed up existing Fail2Ban configuration to jail.local.bak." | tee -a $LOGFILE
+fi
+
+cat <<EOF > /etc/fail2ban/jail.local
+[DEFAULT]
+ignoreip = 127.0.0.1/8
+bantime  = 3600
+findtime = 600
+maxretry = 5
+
+[sshd]
+enabled = true
+EOF
+
 systemctl enable fail2ban
 systemctl restart fail2ban || log_failure "Fail2Ban configuration"
 log_success "Fail2Ban configuration"
@@ -159,12 +172,21 @@ log_success "Disabling core dumps"
 
 # Configure AuditD
 echo "Setting up AuditD..." | tee -a $LOGFILE
-cat <<EOF >/etc/audit/rules.d/hardening.rules
+
+# Backup existing rules
+if [ -f /etc/audit/audit.rules ]; then
+    mv /etc/audit/audit.rules /etc/audit/audit.rules.bak
+    echo "Backed up existing AuditD rules to audit.rules.bak." | tee -a $LOGFILE
+fi
+
+# Add new rules
+cat <<EOF > /etc/audit/rules.d/hardening.rules
 -w /etc/passwd -p wa -k passwd_changes
 -w /etc/group -p wa -k group_changes
 -w /etc/shadow -p wa -k shadow_changes
 EOF
-augenrules --load
+
+augenrules --load || log_failure "AuditD rule loading"
 systemctl enable auditd
 systemctl restart auditd || log_failure "AuditD configuration"
 log_success "AuditD configuration"
