@@ -1,9 +1,13 @@
 #!/bin/bash
 
-LOG_FILE="/var/log/server_hardening.log"
+export safe_date=`date +%s`;
+export LOG_FILE="/var/log/server_hardening`date +%s`.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-echo "[INFO] Starting security hardening at $(date)..."
+echo "[INFO] Starting security hardening at $safe_date"
+
+
+## probably check_for_likely_pm () which does some whiching -a on uh yum apt aptitude apt-get dnf etc etc etc
 
 # Function to check if a package is installed, install if not, and handle errors
 install_package() {
@@ -78,7 +82,7 @@ lynis audit system || echo "[WARNING] Lynis encountered issues. Check Lynis logs
 # Configure Fail2Ban
 echo "[INFO] Installing and configuring Fail2Ban..."
 install_package "fail2ban"
-cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+builtin cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
 if grep -q "::" /proc/net/if_inet6; then
     sed -i 's/#banaction_allports = iptables-multiport/banaction_allports = ip6tables-multiport/' /etc/fail2ban/jail.local
 fi
