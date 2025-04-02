@@ -65,6 +65,7 @@ PACKAGES=(
     "auditd"
     "acct"
     "sysstat"
+    "Apparmor-utils"
 )
 
 for package in "${PACKAGES[@]}"; do
@@ -128,6 +129,12 @@ chmod 700 /usr/bin/gcc /usr/bin/cc || echo "[WARNING] GCC not found. Skipping co
 
 # Run RKHunter installation and updates
 install_rkhunter
+
+# --- Added by Martin (Powered by ChatGPT) ---
+# AppArmor profile check
+echo "[*] Checking AppArmor status..."
+apparmor_status
+
 
 echo "[INFO] Security hardening completed successfully at $(date)."
 echo "Check $LOG_FILE for full details."
