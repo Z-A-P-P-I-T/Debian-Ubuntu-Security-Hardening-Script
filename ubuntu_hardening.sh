@@ -52,7 +52,10 @@ install_rkhunter() {
 
 # Update system and install essential packages
 echo "[INFO] Updating system packages..."
-apt-get update && apt-get upgrade -y
+if ! apt-get update && apt-get upgrade -y; then
+    echo "[ERROR] Failed to update system packages. Exiting..."
+    exit 1
+fi
 
 PACKAGES=(
     "lynis"
@@ -74,16 +77,24 @@ done
 
 # Run Lynis security audit
 echo "[INFO] Running Lynis scan..."
-lynis audit system || echo "[WARNING] Lynis encountered issues. Check Lynis logs for details."
+if ! lynis audit system; then
+    echo "[WARNING] Lynis encountered issues. Check Lynis logs for details."
+fi
 
 # Configure Fail2Ban
 echo "[INFO] Installing and configuring Fail2Ban..."
 install_package "fail2ban"
-cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+if ! cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local; then
+    echo "[ERROR] Failed to copy Fail2Ban configuration. Exiting..."
+    exit 1
+fi
 if grep -q "::" /proc/net/if_inet6; then
     sed -i 's/#banaction_allports = iptables-multiport/banaction_allports = ip6tables-multiport/' /etc/fail2ban/jail.local
 fi
-systemctl enable fail2ban && systemctl start fail2ban
+if ! systemctl enable fail2ban && systemctl start fail2ban; then
+    echo "[ERROR] Failed to enable or start Fail2Ban. Exiting..."
+    exit 1
+fi
 
 # Configure auditd
 echo "[INFO] Configuring Auditd..."
@@ -92,7 +103,10 @@ cat << EOF > /etc/audit/rules.d/hardening.rules
 -w /etc/group -p wa -k group_changes
 -w /etc/shadow -p wa -k shadow_changes
 EOF
-augenrules --load || echo "[ERROR] Failed to load Auditd rules."
+if ! augenrules --load; then
+    echo "[ERROR] Failed to load Auditd rules. Exiting..."
+    exit 1
+fi
 
 # Configure sysctl hardening
 echo "[INFO] Applying sysctl settings..."
@@ -105,18 +119,27 @@ net.ipv4.tcp_syncookies = 1
 net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
 EOF
-sysctl --system
+if ! sysctl --system; then
+    echo "[ERROR] Failed to apply sysctl settings. Exiting..."
+    exit 1
+fi
 
 # Configure password policies
 echo "[INFO] Configuring password policies..."
-sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
-sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   10/' /etc/login.defs
-sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE   7/' /etc/login.defs
+if ! sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs || \
+   ! sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   10/' /etc/login.defs || \
+   ! sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE   7/' /etc/login.defs; then
+    echo "[ERROR] Failed to configure password policies. Exiting..."
+    exit 1
+fi
 
 # Configure AIDE
 echo "[INFO] Installing and initializing AIDE..."
 install_package "aide"
-aideinit && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+if ! aideinit || ! mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db; then
+    echo "[ERROR] Failed to initialize AIDE. Exiting..."
+    exit 1
+fi
 
 # Apply security banner
 echo "[INFO] Setting up legal banners..."
@@ -125,16 +148,27 @@ echo "Authorized access only. Unauthorized access is prohibited." > /etc/issue.n
 
 # Restrict compiler access
 echo "[INFO] Restricting compiler access..."
-chmod 700 /usr/bin/gcc /usr/bin/cc || echo "[WARNING] GCC not found. Skipping compiler restriction step."
+if [ -f /usr/bin/gcc ]; then
+    chmod 700 /usr/bin/gcc
+else
+    echo "[WARNING] GCC not found. Skipping compiler restriction step."
+fi
+if [ -f /usr/bin/cc ]; then
+    chmod 700 /usr/bin/cc
+else
+    echo "[WARNING] CC not found. Skipping compiler restriction step."
+fi
 
 # Run RKHunter installation and updates
 install_rkhunter
 
-# --- Added by Martin (Powered by ChatGPT) ---
 # AppArmor profile check
 echo "[*] Checking AppArmor status..."
-apparmor_status
-
+if command -v apparmor_status &> /dev/null; then
+    apparmor_status
+else
+    echo "[WARNING] AppArmor is not installed or not available."
+fi
 
 echo "[INFO] Security hardening completed successfully at $(date)."
 echo "Check $LOG_FILE for full details."
