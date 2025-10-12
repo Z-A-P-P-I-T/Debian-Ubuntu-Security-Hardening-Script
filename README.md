@@ -114,7 +114,7 @@ git clone https://github.com/Z-A-P-P-I-T/debian-ubuntu-hardening-script.git
 cd debian-ubuntu-hardening-script
 
 # OR download directly
-wget https://raw.githubusercontent.com/Z-A-P-P-I-T/debian-ubuntu-hardening-script/main/debian-ubuntu-hardening-script.sh
+wget https://github.com/Z-A-P-P-I-T/Debian-Ubuntu-Security-Hardening-Script/blob/main/debian-ubuntu-hardening-script.sh
 
 chmod +x hardening_script.sh
 
