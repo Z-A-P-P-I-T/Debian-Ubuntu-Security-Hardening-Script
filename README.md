@@ -115,7 +115,9 @@ cd debian-ubuntu-hardening-script
 
 # OR download directly
 wget https://raw.githubusercontent.com/Z-A-P-P-I-T/debian-ubuntu-hardening-script/main/debian-ubuntu-hardening-script.sh
+
 chmod +x hardening_script.sh
+
 2. Run the Script
 bash# Interactive mode (recommended for first-time users)
 sudo bash hardening_script.sh
