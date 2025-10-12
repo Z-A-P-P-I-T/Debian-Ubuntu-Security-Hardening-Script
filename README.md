@@ -637,9 +637,7 @@ Special thanks to the open-source security community!
 🌟 Star History
 Show Image
 
-<div align="center">
 ⬆ Back to Top
 Made with ❤️ for the security community
 If this script helped you, please consider giving it a ⭐!
-</div>
 ```
