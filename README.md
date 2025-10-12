@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bash](https://img.shields.io/badge/Bash-5.0+-green.svg)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/Platform-Debian%20|%20Ubuntu-blue.svg)](https://www.debian.org/)
-[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/yourusername/security-hardening/graphs/commit-activity)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Z-A-P-P-I-T//security-hardening/graphs/commit-activity)
 
 A comprehensive, production-ready security hardening script for Debian/Ubuntu systems. Automatically implements security best practices, creates secure admin users, and configures enterprise-grade monitoring tools.
 
@@ -107,11 +107,11 @@ Perfect for servers, workstations, and VMs. Works interactively or fully automat
 ### 1. Download the Script
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/security-hardening.git
+git clone https://github.com/Z-A-P-P-I-T/security-hardening.git
 cd security-hardening
 
 # Or download directly
-wget https://raw.githubusercontent.com/yourusername/security-hardening/main/hardening_script.sh
+wget https://raw.githubusercontent.com/Z-A-P-P-I-T/security-hardening/main/hardening_script.sh
 chmod +x hardening_script.sh
 2. Run the Script
 bash# Interactive mode (recommended for first-time users)
@@ -120,7 +120,8 @@ sudo bash hardening_script.sh
 # OR fully automated mode
 sudo bash hardening_script.sh --disable-root-login
 3. Save Your Credentials
-The script will create a secure admin user and display credentials:
+The script will create a secure random admin user and display credentials:
+Example:
 Username: sec_a3f9c2b1
 Password: xK8#mP2$vR9@wL4!qT7y
 ⚠️ SAVE THESE IMMEDIATELY!
