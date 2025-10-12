@@ -106,12 +106,15 @@ Perfect for servers, workstations, and VMs. Works interactively or fully automat
 
 ### 1. Download the Script
 ```bash
-# Clone the repository
-git clone https://github.com/Z-A-P-P-I-T/security-hardening.git
-cd security-hardening
+## 🚀 Quick Start
 
-# Or download directly
-wget https://raw.githubusercontent.com/Z-A-P-P-I-T/security-hardening/main/hardening_script.sh
+### 1. Download the Script
+# Clone the repository
+git clone https://github.com/Z-A-P-P-I-T/debian-ubuntu-hardening-script.git
+cd debian-ubuntu-hardening-script
+
+# OR download directly
+wget https://raw.githubusercontent.com/Z-A-P-P-I-T/debian-ubuntu-hardening-script/main/debian-ubuntu-hardening-script.sh
 chmod +x hardening_script.sh
 2. Run the Script
 bash# Interactive mode (recommended for first-time users)
