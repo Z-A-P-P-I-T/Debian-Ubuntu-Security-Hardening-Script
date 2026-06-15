@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bash](https://img.shields.io/badge/Bash-5.0+-green.svg)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/Platform-Debian%20%7C%20Ubuntu-blue.svg)](https://www.debian.org/)
+[![Tested on Ubuntu 24.04](https://img.shields.io/badge/Tested-Ubuntu%2024.04%20LTS-brightgreen.svg)](https://ubuntu.com/)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Z-A-P-P-I-T/Debian-Ubuntu-Security-Hardening-Script/graphs/commit-activity)
 
 A comprehensive, production-ready security hardening script for Debian and Ubuntu systems. Applies security best practices aligned with CIS benchmarks and Lynis recommendations — covering SSH, kernel parameters, PAM, auditd, AppArmor, UFW firewall, automatic security updates, filesystem mount hardening, sudo I/O logging, and more. Runs interactively or in fully automated mode.
@@ -630,6 +631,18 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Disclaimer
 
 This script makes significant and wide-ranging security changes to your system. Review the code before running it, and always test in a non-production environment first. The author is not responsible for service disruptions or lockouts resulting from use of this script.
+
+---
+
+## Tested On
+
+All functions have been manually verified on live systems. The table below tracks confirmed working environments.
+
+| OS | Version | Kernel | Date | Scope |
+|---|---|---|---|---|
+| Ubuntu | 24.04.4 LTS (Noble) | 6.17.0-29-generic | 2026-06 | Full script + all new functions (UFW, unattended-upgrades, mount hardening, sudo hardening) verified individually on live system |
+
+If you have tested on Debian or an older Ubuntu release, contributions to this table are welcome.
 
 ---
 
