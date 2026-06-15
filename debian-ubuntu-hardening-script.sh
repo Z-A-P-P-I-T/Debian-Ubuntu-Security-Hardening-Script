@@ -1178,7 +1178,10 @@ harden_mount_options() {
         log_autofix "Added tmpfs /dev/shm with noexec,nosuid,nodev to /etc/fstab"
     fi
 
-    mount -o remount /tmp 2>/dev/null && log_autofix "Remounted /tmp with hardened options" || true
+    systemctl daemon-reload 2>/dev/null || true
+
+    mount -o remount /tmp 2>/dev/null && log_autofix "Remounted /tmp with hardened options" \
+        || log_info "/tmp will be mounted as tmpfs with noexec on next reboot"
     mount -o remount /dev/shm 2>/dev/null && log_autofix "Remounted /dev/shm with hardened options" || true
 
     log_success "Filesystem mount options hardened (/tmp and /dev/shm: noexec,nosuid,nodev)"
