@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Debian%20%7C%20Ubuntu-blue.svg)](https://www.debian.org/)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Z-A-P-P-I-T/Debian-Ubuntu-Security-Hardening-Script/graphs/commit-activity)
 
-A comprehensive, production-ready security hardening script for Debian and Ubuntu systems. Applies security best practices aligned with CIS benchmarks and Lynis recommendations — covering SSH, kernel parameters, PAM, auditd, AppArmor, filesystem permissions, service hardening, and more. Runs interactively or in fully automated mode.
+A comprehensive, production-ready security hardening script for Debian and Ubuntu systems. Applies security best practices aligned with CIS benchmarks and Lynis recommendations — covering SSH, kernel parameters, PAM, auditd, AppArmor, UFW firewall, automatic security updates, filesystem mount hardening, sudo I/O logging, and more. Runs interactively or in fully automated mode.
 
 ---
 
@@ -33,6 +33,7 @@ A comprehensive, production-ready security hardening script for Debian and Ubunt
 - [Contributing](#contributing)
 - [License](#license)
 - [Disclaimer](#disclaimer)
+- [Changelog](#changelog)
 
 ---
 
@@ -40,9 +41,13 @@ A comprehensive, production-ready security hardening script for Debian and Ubunt
 
 - **Fully automated** — runs unattended with a single flag, suitable for CI/CD and large deployments
 - **Auto user creation** — generates a secure admin user with a randomized username and strong password
+- **UFW firewall** — deny-by-default stateful firewall, SSH auto-allowed, `--skip-ufw` flag available
+- **Automatic security updates** — `unattended-upgrades` configured for daily security patches, no auto-reboot
 - **SSH hardening** — disables root login, enforces key-only auth, restricts forwarding, sets timeouts
-- **Kernel hardening** — applies 20+ sysctl parameters covering network, memory, and process security
+- **Kernel hardening** — applies 25+ sysctl parameters covering network, TCP, memory, and process security
 - **PAM hardening** — enforces password complexity, history, aging, and optional account lockout
+- **Sudo hardening** — full I/O session logging, 15-min credential cache, bad-password alerts
+- **Secure mount options** — `/tmp` and `/dev/shm` mounted with `noexec,nosuid,nodev`
 - **AppArmor** — enables and enforces profiles for system daemons
 - **Auditd** — deploys comprehensive audit rules for user, group, login, and network change monitoring
 - **Service reduction** — stops and disables unnecessary network-facing daemons
@@ -156,10 +161,39 @@ See [Disabled Kernel Modules](#disabled-kernel-modules) for the full list.
 - Log rotation compression enabled
 - Log file permissions tightened
 
+### UFW Firewall
+- Default policy: deny all incoming, allow all outgoing
+- SSH port auto-detected from `sshd_config` and allowed
+- UFW enabled with `--force` (non-interactive)
+- Skip with `--skip-ufw` if you manage your own firewall
+
+### Automatic Security Updates
+- `unattended-upgrades` installed and enabled
+- Configured to apply security patches daily
+- Auto-reboot disabled — patches apply without surprise reboots
+- Root receives email reports on changes
+- Stale package lists cleaned weekly
+
+### Secure Mount Options
+- `/tmp` — mounted with `noexec,nosuid,nodev` (prevents executing binaries from temp space)
+- `/dev/shm` — mounted with `noexec,nosuid,nodev` (prevents shared memory abuse)
+- Both are remounted immediately; `/etc/fstab` updated for persistence across reboots
+
+### Sudo Hardening
+- Credential cache timeout: 15 minutes (`timestamp_timeout=15`)
+- Max password attempts: 3 (`passwd_tries=3`)
+- Full session I/O logging to `/var/log/sudo-io/`
+- Audit log written to `/var/log/sudo.log`
+- Bad-password attempts trigger mail alert to root (`mail_badpass`)
+- Password prompt never echoes (`!visiblepw`)
+- Configuration written to `/etc/sudoers.d/hardening`, validated with `visudo -c`
+
 ### Network Security
 - Fail2Ban installed and configured with custom jail rules
 - IPv6 support in Fail2Ban configured
 - Legal banners set in `/etc/issue` and `/etc/issue.net`
+- TCP timestamps disabled (prevents uptime fingerprinting)
+- TCP RFC1337 enabled (TIME-WAIT assassination protection)
 
 ---
 
@@ -257,6 +291,7 @@ sudo bash debian-ubuntu-hardening-script.sh --local-vm
 | `--local-vm` | Skip SSH key checks, keep password auth | Local VM or workstation |
 | `--skip-user-creation` | Do not create a new admin user | Existing admin already configured |
 | `--enable-pam-lockout` | Enable PAM account lockout (10 failed attempts) | High-security environments |
+| `--skip-ufw` | Skip UFW firewall configuration | Systems with an existing firewall |
 
 Example combining flags:
 
@@ -310,6 +345,14 @@ Runs a suite of auto-fix functions:
 
 **Lynis recommendations** — enables AppArmor, disables core dumps, tightens log permissions, disables unnecessary services, sets up AIDE cron, disables USB storage, adds SHA512 password hashing, configures optional PAM lockout, restricts su to wheel group, sets 15-minute session timeout, enables log rotation compression, adds extended auditd rules, applies BPF/kexec kernel hardening
 
+**UFW firewall** — installs ufw, sets default deny incoming / allow outgoing, auto-detects SSH port and allows it, enables firewall (skipped if `--skip-ufw`)
+
+**Automatic security updates** — installs and configures `unattended-upgrades` for daily security patches with mail reporting
+
+**Secure mount options** — adds `noexec,nosuid,nodev` to `/tmp` and `/dev/shm` in `/etc/fstab` and remounts immediately
+
+**Sudo hardening** — writes `/etc/sudoers.d/hardening` with I/O logging, credential timeout, and bad-password alerts; validated with `visudo -c` before applying
+
 ### Phase 6 — Verification
 - Runs a second Lynis audit to measure improvement
 - Runs debsums to verify package integrity
@@ -350,6 +393,8 @@ All parameters are written to `/etc/sysctl.d/99-hardening.conf`.
 | `kernel.kexec_load_disabled` | `1` | Prevent live kernel replacement |
 | `kernel.unprivileged_bpf_disabled` | `1` | Restrict BPF to root |
 | `net.core.bpf_jit_harden` | `2` | Harden BPF JIT compiler |
+| `net.ipv4.tcp_timestamps` | `0` | Disable TCP timestamps (prevents uptime fingerprinting) |
+| `net.ipv4.tcp_rfc1337` | `1` | Protect against TCP TIME-WAIT assassination attacks |
 
 ---
 
@@ -502,11 +547,23 @@ sudo aide --check
 # Fail2Ban status
 sudo fail2ban-client status
 
+# UFW firewall status
+sudo ufw status verbose
+
 # Check applied sysctl values
-sudo sysctl -a | grep -E 'syncookies|dmesg_restrict|kptr_restrict|bpf'
+sudo sysctl -a | grep -E 'syncookies|dmesg_restrict|kptr_restrict|bpf|tcp_timestamps|tcp_rfc1337'
 
 # Confirm USB storage is blocked
 lsmod | grep usb_storage   # should return nothing
+
+# Verify secure mount options
+mount | grep -E '/tmp|/dev/shm'
+
+# Check automatic updates are active
+systemctl status unattended-upgrades
+
+# Confirm sudo logging is active
+sudo cat /var/log/sudo.log
 ```
 
 ---
@@ -527,6 +584,15 @@ This is normal after running the script since it modifies many system files. Re-
 
 **Service fails to start after hardening**
 Check if the service was disabled by the script (`systemctl status <service>`). Services in the [Disabled Services](#disabled-services) list are stopped intentionally. Re-enable with `sudo systemctl enable --now <service>` if needed.
+
+**UFW blocking a port I need**
+List current rules with `sudo ufw status numbered`. Add a rule with `sudo ufw allow <port>/<protocol>`. If you want to skip UFW entirely, re-run the script with `--skip-ufw`.
+
+**Cannot write to /tmp or /dev/shm**
+The noexec/nosuid/nodev mount options prevent binary execution from those locations but do not prevent writing. If a specific application requires execute permissions from `/tmp`, you may need to remount it without `noexec`: `sudo mount -o remount,exec /tmp`.
+
+**Sudo sessions expiring too fast**
+The default is 15 minutes. To adjust: edit `/etc/sudoers.d/hardening` and change `timestamp_timeout=15` to your preferred value. Use `sudo visudo -f /etc/sudoers.d/hardening` to edit safely.
 
 ---
 
@@ -564,6 +630,19 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Disclaimer
 
 This script makes significant and wide-ranging security changes to your system. Review the code before running it, and always test in a non-production environment first. The author is not responsible for service disruptions or lockouts resulting from use of this script.
+
+---
+
+## Changelog
+
+### Latest
+- Added UFW firewall with deny-by-default policy and auto-detected SSH port (`--skip-ufw` flag to opt out)
+- Added `unattended-upgrades` for daily automatic security patch application
+- Added secure mount options for `/tmp` and `/dev/shm` (`noexec,nosuid,nodev`)
+- Added sudo hardening with full I/O session logging and credential timeout
+- Added TCP timestamp disabling and RFC1337 protection to sysctl hardening
+- Documented all previously undocumented hardening steps in README (auditd rules, kernel params, disabled services/modules, file permissions, PAM, AppArmor, umask, session timeout)
+- Fixed git remote misconfiguration
 
 ---
 

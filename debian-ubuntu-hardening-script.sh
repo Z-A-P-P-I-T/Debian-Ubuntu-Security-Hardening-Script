@@ -52,6 +52,7 @@ SKIP_USER_CREATION=false
 LOCAL_VM_MODE=false
 ENABLE_PAM_LOCKOUT=false
 DISABLE_ROOT_LOGIN=""  # Empty = ask user interactively, "yes" = auto-disable, "no" = keep enabled
+SKIP_UFW=false
 
 for arg in "$@"; do
     case $arg in
@@ -74,6 +75,10 @@ for arg in "$@"; do
         --keep-root-login)
             DISABLE_ROOT_LOGIN="no"
             echo "[INFO] Root SSH login will remain enabled (user account will still be created)"
+            ;;
+        --skip-ufw)
+            SKIP_UFW=true
+            echo "[INFO] Skipping UFW firewall configuration"
             ;;
         *)
             echo "[WARNING] Unknown argument: $arg"
@@ -181,7 +186,7 @@ echo "Logging initialized. Output will be saved to: $LOG_FILE"
 echo ""
 
 STEP=0
-TOTAL_STEPS=29
+TOTAL_STEPS=33
 declare -a COMPLETED_STEPS=()
 declare -a FAILED_STEPS=()
 declare -a AUTO_FIXES=()
@@ -1085,6 +1090,134 @@ EOF
     log_success "Lynis recommendations auto-fixed"
 }
 
+configure_ufw() {
+    print_step "Configuring UFW firewall"
+
+    install_package "ufw"
+
+    local ssh_port
+    ssh_port=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+    ssh_port="${ssh_port:-22}"
+
+    ufw --force reset > /dev/null 2>&1
+    ufw default deny incoming >> "$LOG_FILE" 2>&1
+    ufw default allow outgoing >> "$LOG_FILE" 2>&1
+    ufw allow "${ssh_port}/tcp" comment 'SSH' >> "$LOG_FILE" 2>&1
+    log_autofix "UFW: allowed SSH on port $ssh_port"
+    ufw --force enable >> "$LOG_FILE" 2>&1
+    ufw status verbose >> "$LOG_FILE" 2>&1
+
+    log_success "UFW firewall enabled: default deny incoming, SSH allowed on port $ssh_port"
+    log_info "Add more rules as needed: ufw allow <port>/<protocol>"
+}
+
+configure_unattended_upgrades() {
+    print_step "Configuring automatic security updates"
+
+    install_package "unattended-upgrades"
+
+    cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'EOF'
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+Unattended-Upgrade::Package-Blacklist {
+};
+Unattended-Upgrade::DevRelease "false";
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Mail "root";
+Unattended-Upgrade::MailReport "on-change";
+EOF
+
+    cat > /etc/apt/apt.conf.d/20auto-upgrades << 'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+    systemctl enable unattended-upgrades >> "$LOG_FILE" 2>&1
+    systemctl restart unattended-upgrades >> "$LOG_FILE" 2>&1
+
+    log_success "Automatic security updates configured (daily, security patches only, no auto-reboot)"
+}
+
+harden_mount_options() {
+    print_step "Hardening filesystem mount options"
+
+    backup_config "/etc/fstab"
+
+    # /tmp
+    if grep -qE '^\S+\s+/tmp\s' /etc/fstab; then
+        if ! grep -qE '^\S+\s+/tmp\s.*noexec' /etc/fstab; then
+            sed -i -E 's|^(\S+\s+/tmp\s+\S+\s+)(\S+)(\s+.*)|\1\2,noexec,nosuid,nodev\3|' /etc/fstab
+            log_autofix "Added noexec,nosuid,nodev to /tmp in /etc/fstab"
+        else
+            log_info "/tmp already has noexec in /etc/fstab"
+        fi
+    else
+        echo "tmpfs /tmp tmpfs defaults,noexec,nosuid,nodev,size=1G 0 0" >> /etc/fstab
+        log_autofix "Added tmpfs /tmp with noexec,nosuid,nodev to /etc/fstab"
+    fi
+
+    # /dev/shm
+    if grep -qE '^\S+\s+/dev/shm\s' /etc/fstab; then
+        if ! grep -qE '^\S+\s+/dev/shm\s.*noexec' /etc/fstab; then
+            sed -i -E 's|^(\S+\s+/dev/shm\s+\S+\s+)(\S+)(\s+.*)|\1\2,noexec,nosuid,nodev\3|' /etc/fstab
+            log_autofix "Added noexec,nosuid,nodev to /dev/shm in /etc/fstab"
+        else
+            log_info "/dev/shm already has noexec in /etc/fstab"
+        fi
+    else
+        echo "tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev 0 0" >> /etc/fstab
+        log_autofix "Added tmpfs /dev/shm with noexec,nosuid,nodev to /etc/fstab"
+    fi
+
+    mount -o remount /tmp 2>/dev/null && log_autofix "Remounted /tmp with hardened options" || true
+    mount -o remount /dev/shm 2>/dev/null && log_autofix "Remounted /dev/shm with hardened options" || true
+
+    log_success "Filesystem mount options hardened (/tmp and /dev/shm: noexec,nosuid,nodev)"
+}
+
+harden_sudo() {
+    print_step "Hardening sudo configuration"
+
+    local sudoers_file="/etc/sudoers.d/hardening"
+
+    if [[ -f "$sudoers_file" ]]; then
+        backup_config "$sudoers_file"
+    fi
+
+    mkdir -p /var/log/sudo-io
+    chmod 750 /var/log/sudo-io
+
+    cat > "$sudoers_file" << 'EOF'
+# Sudo hardening - applied by security hardening script
+Defaults timestamp_timeout=15
+Defaults passwd_tries=3
+Defaults logfile=/var/log/sudo.log
+Defaults log_input
+Defaults log_output
+Defaults iolog_dir=/var/log/sudo-io
+Defaults mail_badpass
+Defaults !visiblepw
+EOF
+
+    chmod 440 "$sudoers_file"
+
+    if visudo -c -f "$sudoers_file" >> "$LOG_FILE" 2>&1; then
+        log_success "Sudo hardened: 15-min credential cache, full I/O logging, bad-password alerts"
+    else
+        log_warning "Sudo hardening config failed validation — removing"
+        rm -f "$sudoers_file"
+    fi
+}
+
 print_step "Checking for admin user with SSH keys"
 
 # Function to generate a strong random password
@@ -1770,6 +1903,10 @@ net.ipv6.conf.default.accept_source_route = 0
 # Log Martian packets
 net.ipv4.conf.all.log_martians = 1
 net.ipv4.conf.default.log_martians = 1
+
+# TCP hardening
+net.ipv4.tcp_timestamps = 0
+net.ipv4.tcp_rfc1337 = 1
 EOF
 
 if sysctl --system 2>&1 | tee -a "$LOG_FILE"; then
@@ -1911,6 +2048,12 @@ auto_fix_kernel_modules
 auto_fix_umask
 auto_fix_network_parameters
 auto_fix_lynis_recommendations
+if [[ "$SKIP_UFW" != "true" ]]; then
+    configure_ufw
+fi
+configure_unattended_upgrades
+harden_mount_options
+harden_sudo
 
 # Re-run Lynis to verify improvements
 print_step "Re-running Lynis to verify security improvements"
@@ -2366,7 +2509,10 @@ echo "║    ✓ Kernel hardening (sysctl parameters applied)                   
 echo "║    ✓ Password policies enforced                                       ║"
 echo "║    ✓ Unused services disabled                                         ║"
 echo "║    ✓ File permissions secured                                         ║"
-echo "║    ✓ And much more...                                                 ║"
+echo "║    ✓ UFW firewall (deny-by-default, SSH allowed)                      ║"
+echo "║    ✓ Automatic security updates (unattended-upgrades)                 ║"
+echo "║    ✓ Secure mounts (/tmp, /dev/shm: noexec,nosuid,nodev)             ║"
+echo "║    ✓ Sudo hardening (I/O logging, credential timeout)                 ║"
 echo "║                                                                        ║"
 echo "║  Review the logs for detailed information.                            ║"
 echo "║                                                                        ║"
