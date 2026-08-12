@@ -1,3 +1,5 @@
+
+
 # Debian/Ubuntu Security Hardening Script
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -290,7 +292,7 @@ sudo bash debian-ubuntu-hardening-script.sh --local-vm
 | `--disable-root-login` | Disable root SSH login automatically | Automation / CI |
 | `--keep-root-login` | Keep root SSH login enabled | Cautious/staged rollout |
 | `--local-vm` | Skip SSH key checks, keep password auth | Local VM or workstation |
-| `--skip-user-creation` | Do not create a new admin user | Existing admin already configured |
+| `--skip-user-creation` | Do not create a new admin user (requires an existing admin with sudo access) | Existing admin already configured |
 | `--enable-pam-lockout` | Enable PAM account lockout (10 failed attempts) | High-security environments |
 | `--skip-ufw` | Skip UFW firewall configuration | Systems with an existing firewall |
 
